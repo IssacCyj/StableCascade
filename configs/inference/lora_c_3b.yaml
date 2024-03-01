@@ -13,3 +13,5 @@ effnet_checkpoint_path: models/effnet_encoder.safetensors
 previewer_checkpoint_path: models/previewer.safetensors
 generator_checkpoint_path: models/stage_c_bf16.safetensors
 lora_checkpoint_path: models/lora_fernando_10k.safetensors
+lora_checkpoint_path2: models/lora_fernando_10k.safetensors
+

@@ -1,6 +1,41 @@
 import torch
 from torch import nn
 
+class ZipLoRA(nn.Module):
+    def __init__(self, layer, name='weight', rank=16, alpha=1):
+        super().__init__()
+        weight = getattr(layer, name)
+        self.lora_down1 = nn.Parameter(torch.zeros((rank, weight.size(1))))
+        self.lora_up1 = nn.Parameter(torch.zeros((weight.size(0), rank)))
+        self.lora_down2 = nn.Parameter(torch.zeros((rank, weight.size(1))))
+        self.lora_up2 = nn.Parameter(torch.zeros((weight.size(0), rank)))
+        # nn.init.normal_(self.lora_up1, mean=0, std=1)
+
+        self.scale = alpha / rank
+        self.enabled = True
+
+    def forward(self, original_weights):
+        if self.enabled:
+            lora_shape = list(original_weights.shape[:2]) + [1] * (len(original_weights.shape) - 2)
+            lora_weights1 = torch.matmul(self.lora_up1.clone(), self.lora_down1.clone()).view(*lora_shape) * self.scale
+            lora_weights2 = torch.matmul(self.lora_up2.clone(), self.lora_down2.clone()).view(*lora_shape) * self.scale
+            return original_weights + (lora_weights1 + lora_weights2) / 2.0
+        else:
+            return original_weights
+
+def apply_ziplora(model, filters=None, rank=16):
+    def check_parameter(module, name):
+        return hasattr(module, name) and not torch.nn.utils.parametrize.is_parametrized(module, name) and isinstance(
+            getattr(module, name), nn.Parameter)
+
+    for name, module in model.named_modules():
+        if filters is None or any([f in name for f in filters]):
+            if check_parameter(module, "weight"):
+                device, dtype = module.weight.device, module.weight.dtype
+                torch.nn.utils.parametrize.register_parametrization(module, 'weight', ZipLoRA(module, "weight", rank=rank).to(dtype).to(device))
+            elif check_parameter(module, "in_proj_weight"):
+                device, dtype = module.in_proj_weight.device, module.in_proj_weight.dtype
+                torch.nn.utils.parametrize.register_parametrization(module, 'in_proj_weight', ZipLoRA(module, "in_proj_weight", rank=rank).to(dtype).to(device))
 
 class LoRA(nn.Module):
     def __init__(self, layer, name='weight', rank=16, alpha=1):
